@@ -19,13 +19,14 @@ function SimpleLandingPage() {
   const [initializing, setInitializing] = useState(false);
 
   const handleAccess = () => {
-    if (!user) {
-      login("dig", MOCK_USERS["dig"].password);
-    }
     setInitializing(true);
     setTimeout(() => {
-      navigate({ to: "/dashboard" });
-    }, 1200);
+      if (user) {
+        navigate({ to: "/dashboard" });
+      } else {
+        navigate({ to: "/login" });
+      }
+    }, 600);
   };
 
   return (
