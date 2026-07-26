@@ -2,7 +2,7 @@ import { USE_MOCK, BASE_URL } from "../config";
 
 /**
  * DHARADRISHTI — Centralized API Client
- * Includes AbortController timeouts (15s) and unhandled promise safety.
+ * Dynamically supports direct paths for local dev and query path routing for Catalyst API Gateway.
  */
 
 function getAuthHeaders(): Record<string, string> {
@@ -26,13 +26,20 @@ function getAuthHeaders(): Record<string, string> {
   return headers;
 }
 
+function buildUrl(path: string): string {
+  if (BASE_URL.includes("localhost")) {
+    return `${BASE_URL}${path}`;
+  }
+  return `${BASE_URL}?path=${encodeURIComponent(path)}`;
+}
+
 export async function apiGet<T>(path: string, fallback: T): Promise<T> {
   if (USE_MOCK) return fallback;
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), 15000);
 
   try {
-    const res = await fetch(`${BASE_URL}${path}`, {
+    const res = await fetch(buildUrl(path), {
       headers: getAuthHeaders(),
       signal: controller.signal
     });
@@ -56,7 +63,7 @@ export async function apiPost<T>(path: string, body: unknown, fallback: T): Prom
   const id = setTimeout(() => controller.abort(), 20000);
 
   try {
-    const res = await fetch(`${BASE_URL}${path}`, {
+    const res = await fetch(buildUrl(path), {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify(body),
