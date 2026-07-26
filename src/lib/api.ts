@@ -2,7 +2,8 @@ import { USE_MOCK, BASE_URL } from "../config";
 
 /**
  * DHARADRISHTI — Centralized API Client
- * Dynamically supports direct paths for local dev and query path routing for Catalyst API Gateway.
+ * Includes robust failover between function URL and API Gateway endpoint,
+ * 15s timeout protection, and non-blocking fallback handling.
  */
 
 function getAuthHeaders(): Record<string, string> {
@@ -26,33 +27,39 @@ function getAuthHeaders(): Record<string, string> {
   return headers;
 }
 
-function buildUrl(path: string): string {
-  if (BASE_URL.includes("localhost")) {
-    return `${BASE_URL}${path}`;
-  }
-  return `${BASE_URL}?path=${encodeURIComponent(path)}`;
-}
-
 export async function apiGet<T>(path: string, fallback: T): Promise<T> {
   if (USE_MOCK) return fallback;
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), 15000);
 
+  const primaryUrl = `${BASE_URL}${path}`;
+  const gatewayUrl = `https://dharadhristi-60079561238.development.catalystserverless.in/server/IO/execute?path=${encodeURIComponent(path)}`;
+
   try {
-    const res = await fetch(buildUrl(path), {
+    // 1. Try primary URL
+    let res = await fetch(primaryUrl, {
       headers: getAuthHeaders(),
       signal: controller.signal
-    });
+    }).catch(() => null);
+
+    // 2. If primary fails or returns non-200, try API Gateway route
+    if (!res || !res.ok) {
+      res = await fetch(gatewayUrl, {
+        headers: getAuthHeaders(),
+        signal: controller.signal
+      }).catch(() => null);
+    }
+
     clearTimeout(id);
-    if (!res.ok) throw new Error(`API ${res.status}`);
+    if (!res || !res.ok) {
+      console.warn(`[API] GET ${path} failed on all endpoints, using fallback`);
+      return fallback;
+    }
+
     return await res.json();
   } catch (err: any) {
     clearTimeout(id);
-    if (err.name === 'AbortError') {
-      console.warn(`[API] GET ${path} timed out after 15s`);
-    } else {
-      console.warn(`[API] GET ${path} failed, using fallback`, err);
-    }
+    console.warn(`[API] GET ${path} error:`, err);
     return fallback;
   }
 }
@@ -62,23 +69,36 @@ export async function apiPost<T>(path: string, body: unknown, fallback: T): Prom
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), 20000);
 
+  const primaryUrl = `${BASE_URL}${path}`;
+  const gatewayUrl = `https://dharadhristi-60079561238.development.catalystserverless.in/server/IO/execute?path=${encodeURIComponent(path)}`;
+
   try {
-    const res = await fetch(buildUrl(path), {
+    let res = await fetch(primaryUrl, {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify(body),
       signal: controller.signal
-    });
+    }).catch(() => null);
+
+    if (!res || !res.ok) {
+      res = await fetch(gatewayUrl, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(body),
+        signal: controller.signal
+      }).catch(() => null);
+    }
+
     clearTimeout(id);
-    if (!res.ok) throw new Error(`API ${res.status}`);
+    if (!res || !res.ok) {
+      console.warn(`[API] POST ${path} failed on all endpoints, using fallback`);
+      return fallback;
+    }
+
     return await res.json();
   } catch (err: any) {
     clearTimeout(id);
-    if (err.name === 'AbortError') {
-      console.warn(`[API] POST ${path} timed out`);
-    } else {
-      console.warn(`[API] POST ${path} failed, using fallback`, err);
-    }
+    console.warn(`[API] POST ${path} error:`, err);
     return fallback;
   }
 }
